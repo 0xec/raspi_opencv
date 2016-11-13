@@ -33,12 +33,19 @@ class Camera:
         else:
             return None
 
+    def start_preview(self):
+        self.camera.start_preview()
+
+    def stop_preview(self):
+        self.camera.stop_preview()
+
     def detect(self, gauss):
         frame = self.capture_frame()
 
         current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         current_frame = cv2.GaussianBlur(current_frame, (gauss, gauss), 0)
 
+        status = 'No Detected'
         if self.prev_frame != None:
             frame_delta = cv2.absdiff(current_frame, self.prev_frame)
             self.prev_frame = current_frame
@@ -52,19 +59,25 @@ class Camera:
 
                 (x, y, w, h) = cv2.boundingRect(c)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                status = 'Detected'
         else:
             self.prev_frame = current_frame
 
+        cv2.putText(frame, "Status: {0}".format(status), (10, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         return self.encode_image(frame)
 
 cam = Camera()
-# cam.set_resolution((1280, 800))
+cam.set_resolution((1024, 768))
+cam.start_preview()
+tick = 0
 
 
 class MJPEGHandler(tornado.web.RequestHandler):
     @tornado.web.asynchronous
     @tornado.gen.coroutine
     def get(self):
+        global tick
         ioloop = tornado.ioloop.IOLoop.current()
         value = int(self.get_argument('gauss', 11))
         self.set_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
@@ -76,8 +89,12 @@ class MJPEGHandler(tornado.web.RequestHandler):
         self.served_image_timestamp = time.time()
         my_boundary = "--boundarydonotcross\n"
         while True:
+
+            print('frame %d' % tick)
+            tick += 1
+
             frame = cam.detect(value)
-            interval = 0.05
+            interval = 0.1
             if self.served_image_timestamp + interval < time.time():
                 self.write(my_boundary)
                 self.write("Content-type: image/jpeg\r\n")
