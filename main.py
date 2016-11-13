@@ -4,7 +4,7 @@ import cv2
 import time
 import tornado.ioloop
 import tornado.web
-
+import os
 
 class Camera:
     def __init__(self):
@@ -46,6 +46,7 @@ class Camera:
         current_frame = cv2.GaussianBlur(current_frame, (gauss, gauss), 0)
 
         status = 'No Detected'
+        detected = False
         if self.prev_frame != None:
             frame_delta = cv2.absdiff(current_frame, self.prev_frame)
             self.prev_frame = current_frame
@@ -54,24 +55,29 @@ class Camera:
             (cnts, _) = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in cnts:
                 # if the contour is too small, ignore it
-                if cv2.contourArea(c) < 300.0:
+                if cv2.contourArea(c) < 10.0:
                     continue
 
                 (x, y, w, h) = cv2.boundingRect(c)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
+                detected = True
                 status = 'Detected'
         else:
             self.prev_frame = current_frame
 
         cv2.putText(frame, "Status: {0}".format(status), (10, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-        return self.encode_image(frame)
+        _, w, _ = frame.shape
+        cv2.putText(frame, time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()), (w / 2, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        return detected, frame
 
 cam = Camera()
 cam.set_resolution((1024, 768))
 cam.start_preview()
 tick = 0
-
+file_tick = 0
+preview_frame = None
+_, result_frame = cam.detect(11)
 
 class MJPEGHandler(tornado.web.RequestHandler):
     @tornado.web.asynchronous
@@ -89,17 +95,19 @@ class MJPEGHandler(tornado.web.RequestHandler):
         self.served_image_timestamp = time.time()
         my_boundary = "--boundarydonotcross\n"
         while True:
-
-            print('frame %d' % tick)
+            # print('frame %d' % tick)
             tick += 1
-
-            frame = cam.detect(value)
             interval = 0.1
+            preview = ''
+
+            if preview_frame != None:
+                preview = cam.encode_image(preview_frame)
+
             if self.served_image_timestamp + interval < time.time():
                 self.write(my_boundary)
                 self.write("Content-type: image/jpeg\r\n")
-                self.write("Content-length: %s\r\n\r\n" % len(frame))
-                self.write(str(frame))
+                self.write("Content-length: %s\r\n\r\n" % len(preview))
+                self.write(str(preview))
                 self.served_image_timestamp = time.time()
                 yield tornado.gen.Task(self.flush)
             else:
@@ -119,9 +127,26 @@ def make_app():
         (r"/preview", MJPEGHandler),
     ])
 
+def timer_callback():
+    global preview_frame
+    global file_tick
+    # print('timer callback')
+    # print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()))
+    motion, frame = cam.detect(11)
+    preview_frame = frame
+    if motion:
+        filename = 'motion_%05d.jpg' % file_tick
+        cv2.imwrite(filename, frame)
+        print('write file: %s' % filename)
+        file_tick += 1
+
+    tornado.ioloop.IOLoop.current().call_later(0.2, timer_callback)
+
 if __name__ == "__main__":
+    os.system("rm *.jpg")
     app = make_app()
     app.listen(8080)
+    timer_callback()
     tornado.ioloop.IOLoop.current().start()
 
 
