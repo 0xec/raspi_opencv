@@ -67,7 +67,6 @@ class MJPEGHandler(tornado.web.RequestHandler):
     def get(self):
         ioloop = tornado.ioloop.IOLoop.current()
         value = int(self.get_argument('gauss', 11))
-        print(value)
         self.set_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
         self.set_header('Connection', 'close')
         self.set_header('Content-Type', 'multipart/x-mixed-replace;boundary=--boundarydonotcross')
